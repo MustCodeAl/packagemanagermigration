@@ -2,8 +2,10 @@ use colored::*;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use std::env;
+use clap::{CommandFactory, Parser, Subcommand};
 use color_backtrace::install;
 use log::{error, info};
+use crate::DebugLevel::Verbose;
 
 
 #[tokio::main]
@@ -11,44 +13,65 @@ async fn main() {
     env_logger::init();
     install();
 
-    let home_dir = env::var("HOME").unwrap_or_else(|_| {
-        error!(
+
+    let cli = CargoHelper::parse();
+
+    match &cli.command {
+        Commands::GenerateFigSpec => clap_complete::generate(
+            clap_complete_fig::Fig,
+            &mut CargoHelper::command(),
+            "cargo_migration",
+            &mut std::io::stdout(),
+        ),
+        Commands::CargoMigrationCmd => {
+            let home_dir = env::var("HOME").unwrap_or_else(|_| {
+                error!(
             "{} Unable to determine user's home directory.",
             "Error:".bright_red()
         );
-        std::process::exit(1);
-    });
+                std::process::exit(1);
+            });
 
-    let default_uninstall_script_file = format!("{}/Downloads/uninstall_packages.sh", home_dir);
-    let default_install_script_file = format!("{}/Downloads/install_packages.sh", home_dir);
 
-    let uninstall_script_file = env::var("UNINSTALL_SCRIPT_FILE")
-        .unwrap_or_else(|_| default_uninstall_script_file.clone());
+            let default_uninstall_script_file = format!("{}/Downloads/uninstall_packages.sh", home_dir);
+            let default_install_script_file = format!("{}/Downloads/install_packages.sh", home_dir);
 
-    let install_script_file = env::var("INSTALL_SCRIPT_FILE")
-        .unwrap_or_else(|_| default_install_script_file.clone());
+            let uninstall_script_file = env::var("UNINSTALL_SCRIPT_FILE")
+                .unwrap_or_else(|_| default_uninstall_script_file.clone());
 
-    let mut uninstall_file = File::create(&uninstall_script_file)
-        .await
-        .expect(&format!("{} Error creating file.", "Error:".bright_red()));
+            let install_script_file = env::var("INSTALL_SCRIPT_FILE")
+                .unwrap_or_else(|_| default_install_script_file.clone());
 
-    let mut install_file = File::create(&install_script_file)
-        .await
-        .expect(&format!("{} Error creating file.", "Error:".bright_red()));
+            let mut uninstall_file = File::create(&uninstall_script_file)
+                .await
+                .expect(&format!("{} Error creating file.", "Error:".bright_red()));
 
-    // Run for Homebrew
-    generate_scripts::<Homebrew>(&mut uninstall_file, &mut install_file).await;
+            let mut install_file = File::create(&install_script_file)
+                .await
+                .expect(&format!("{} Error creating file.", "Error:".bright_red()));
 
-    info!(
+            // Run for Homebrew
+            generate_scripts::<Homebrew>(&mut uninstall_file, &mut install_file).await;
+
+            info!(
         "{} Uninstall script generated at: {}",
         "Success:".bright_green(),
         uninstall_script_file
     );
-    info!(
+            info!(
         "{} Install script generated at: {}",
         "Success:".bright_green(),
         install_script_file
     );
+        }
+        _ => {
+            error!(
+                "{} Command not found.",
+                "Error:".bright_red()
+            );
+            std::process::exit(1);
+        }
+    }
 }
 
 
@@ -210,6 +233,113 @@ async fn generate_scripts<T: PackageManager>(
         "{} Installing packages from Homebrew...",
         "Info:".bright_cyan()
     );
+}
+
+
+#[derive(clap::Parser)]
+struct CargoHelper {
+    #[clap(subcommand)]
+    command: Commands,
+
+}
+
+#[derive(clap::Parser)]
+#[command(author, version, about, long_about = None)]
+struct CargoMigrationArgs {
+    #[arg(short, long)]
+    uninstall_script_file_location: Option<String>,
+    #[arg(short, long)]
+    install_script_file_location: Option<String>,
+
+    #[arg(short, long)]
+    config_file_location: Option<String>,
+
+    // TODO ADD DEFAULT PACKAGE MANAGER
+    #[arg(short, long)]
+    package_manager: Option<String>,
+
+    #[arg(short, long)]
+    offline: bool,
+
+    #[arg(short, long)]
+    run: RunMode,
+
+    #[arg(short, long)]
+    debug: DebugLevel,
+
+}
+
+// #[derive(Subcommand)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(clap::Parser)]
+enum RunMode {
+    Automatic,
+    Interactive,
+    DryRun,
+}
+
+impl From<String> for RunMode {
+    fn from(value: String) -> Self {
+        if value.trim().to_lowercase().contains("auto") {
+            return Self::Automatic;
+        } else if value.trim().to_lowercase().contains("int") {
+            return Self::Interactive;
+        } else {
+            return Self::DryRun;
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(clap::Parser)]
+enum PackageManagerType {
+    Homebrew,
+    Cargo,
+    Apt,
+    Winget,
+    // Ports,
+    // Pkg,
+    // Choco,
+    /*    Npm,
+        Pip,
+        Go,
+        Dnf,
+        Nix,
+        Scoop,
+        Pacman,
+        Dpkg,
+        Flatpak,
+        Snap,
+        Other,*/
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+enum DebugLevel {
+    Verbose,
+    Quiet,
+    Normal,
+}
+
+impl From<String> for DebugLevel {
+    fn from(value: String) -> Self {
+        if value.trim().to_lowercase().contains("ver") {
+            return Self::Verbose;
+        } else if value.trim().to_lowercase().contains("quiet") {
+            return Self::Quiet;
+        } else {
+            return Self::Normal;
+        }
+
+
+        // todo!("fix this to not have to match user string and just take the flag in order for the arg")
+    }
+}
+
+
+#[derive(Subcommand)]
+enum Commands {
+    CargoMigrationCmd,
+    GenerateFigSpec,
 }
 
 
