@@ -13,7 +13,7 @@ for example:
 to run command type
 
 <tldr>
-    <p>Migration tools from package managers to cargo</p>
+    <p>Migrate tools from package managers to cargo</p>
 </tldr>
 
 
