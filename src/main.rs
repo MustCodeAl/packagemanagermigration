@@ -1,10 +1,9 @@
+use color_backtrace::install;
 use colored::*;
+use log::{error, info};
+use std::env;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use std::env;
-use color_backtrace::install;
-use log::{error, info};
-
 
 #[tokio::main]
 async fn main() {
@@ -22,11 +21,11 @@ async fn main() {
     let default_uninstall_script_file = format!("{}/Downloads/uninstall_packages.sh", home_dir);
     let default_install_script_file = format!("{}/Downloads/install_packages.sh", home_dir);
 
-    let uninstall_script_file = env::var("UNINSTALL_SCRIPT_FILE")
-        .unwrap_or_else(|_| default_uninstall_script_file.clone());
+    let uninstall_script_file =
+        env::var("UNINSTALL_SCRIPT_FILE").unwrap_or_else(|_| default_uninstall_script_file.clone());
 
-    let install_script_file = env::var("INSTALL_SCRIPT_FILE")
-        .unwrap_or_else(|_| default_install_script_file.clone());
+    let install_script_file =
+        env::var("INSTALL_SCRIPT_FILE").unwrap_or_else(|_| default_install_script_file.clone());
 
     let mut uninstall_file = File::create(&uninstall_script_file)
         .await
@@ -51,7 +50,6 @@ async fn main() {
     );
 }
 
-
 #[async_trait::async_trait]
 trait PackageManager {
     fn new() -> Self;
@@ -61,7 +59,6 @@ trait PackageManager {
     fn uninstall_command(&self, package: &str) -> String;
     fn install_command(&self, package: &str) -> String;
 }
-
 
 struct Homebrew;
 
@@ -84,9 +81,7 @@ impl PackageManager for Homebrew {
         let info: serde_json::Value =
             serde_json::from_str(&output.join("\n")).expect("Error parsing JSON");
 
-        let version = info[0]["versions"]["stable"]
-            .as_str()
-            .map(String::from);
+        let version = info[0]["versions"]["stable"].as_str().map(String::from);
 
         version
     }
@@ -142,17 +137,71 @@ impl PackageManager for Cargo {
     }
 }
 
+struct Winget;
+
+#[async_trait::async_trait]
+impl PackageManager for Winget {
+    fn new() -> Self {
+        Self
+    }
+    async fn get_installed_packages(&self) -> Vec<String> {
+        // --source "winget"
+        run_command("winget", &["list", "--source \"winget\""]).await
+    }
+    async fn has_rust_dependency(&self, package: &str) -> bool {
+        todo!("fix for winget")
+    }
+    async fn get_version(&self, package: &str) -> Option<String> {
+
+        Option::from(format!(""))
+
+    }
+    fn uninstall_command(&self, package: &str) -> String {
+        format!("winget uninstall {package}")
+    }
+    fn install_command(&self, package: &str) -> String {
+        format!("cargo install {package}")
+    }
+}
+
+struct Apt;
+
+#[async_trait::async_trait]
+impl PackageManager for Apt {
+    fn new() -> Self {
+        Self
+    }
+    async fn get_installed_packages(&self) -> Vec<String> {
+        run_command("apt", &["list", "--installed"]).await
+    }
+    async fn has_rust_dependency(&self, package: &str) -> bool {
+        run_command_contains("apt", &["show", package], "rust").await
+    }
+    async fn get_version(&self, package: &str) -> Option<String> {
+        Option::from(format!(""))
+    }
+    fn uninstall_command(&self, package: &str) -> String {
+        format!("apt remove {package}\n")
+    }
+    fn install_command(&self, package: &str) -> String {
+        format!("cargo install {package}\n")
+    }
+}
+
 pub fn install_command_cargo(package: &str) -> String {
     format!("cargo install {}\n", package)
 }
-
 
 async fn run_command(command: &str, args: &[&str]) -> Vec<String> {
     let output = tokio::process::Command::new(command)
         .args(args)
         .output()
         .await
-        .expect(&format!("{} Error running {} command", "Error:".bright_red(), command));
+        .expect(&format!(
+            "{} Error running {} command",
+            "Error:".bright_red(),
+            command
+        ));
 
     String::from_utf8_lossy(&output.stdout)
         .lines()
@@ -165,10 +214,7 @@ async fn run_command_contains(command: &str, args: &[&str], pattern: &str) -> bo
     output.iter().any(|line| line.contains(pattern))
 }
 
-async fn generate_scripts<T: PackageManager>(
-    uninstall_file: &mut File,
-    install_file: &mut File,
-) {
+async fn generate_scripts<T: PackageManager>(uninstall_file: &mut File, install_file: &mut File) {
     let package_manager = T::new();
     let packages = package_manager.get_installed_packages().await;
 
@@ -183,25 +229,19 @@ async fn generate_scripts<T: PackageManager>(
                         "Error:".bright_red()
                     ));
 
-                println!(
-                    "{} Uninstalling {}...",
-                    "Info:".bright_cyan(),
-                    &package
-                );
+                println!("{} Uninstalling {}...", "Info:".bright_cyan(), &package);
 
                 install_file
-                    .write_all(install_command_cargo(&format!("{}@{}", &package, version)).as_bytes())
+                    .write_all(
+                        install_command_cargo(&format!("{}@{}", &package, version)).as_bytes(),
+                    )
                     .await
                     .expect(&format!(
                         "{} Error writing to install script.",
                         "Error:".bright_red()
                     ));
 
-                println!(
-                    "{} Installing {}...",
-                    "Info:".bright_cyan(),
-                    &package
-                );
+                println!("{} Installing {}...", "Info:".bright_cyan(), &package);
             }
         }
     }
@@ -211,7 +251,6 @@ async fn generate_scripts<T: PackageManager>(
         "Info:".bright_cyan()
     );
 }
-
 
 // todo refactor into crates
 // todo add tests
