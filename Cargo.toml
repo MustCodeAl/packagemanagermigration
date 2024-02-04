@@ -11,5 +11,4 @@ color-backtrace = { version = "0.6" }
 colored = "2.1.0"
 env_logger = "0.10.1"
 log = "0.4.20"
-tokio = { version = "1", features = ["full"] }
-async-trait = { version = "0.1.*", features = [] }
+rayon = "1.8.*"
